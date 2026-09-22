@@ -42,13 +42,14 @@ jobs:
           echo "Packaging: $APP"
           mkdir -p Payload
           cp -R "$APP" Payload/
-          # Ad-hoc sign so EVERY nested Mach-O (critically PlugIns/*.xctest)
-          # carries a cdhash; iOS refuses to dlopen a completely-unsigned test
-          # bundle (XCTestErrorDomain 103 / "mapped file has no cdhash").
-          # codesign on a .app recursively signs nested code first.
-          # Sideloadly later replaces the OUTER app signature with your
-          # personal-team cert; the nested ad-hoc signature satisfies dlopen.
-          codesign --force --sign - --timestamp=none "Payload/$(basename "$APP")"
+          # Ad-hoc sign ONLY the nested test bundle so its Mach-O has a cdhash
+          # (iOS refuses to dlopen a completely-unsigned test bundle:
+          #  XCTestErrorDomain 103 / "mapped file has no cdhash").
+          # Do NOT sign the OUTER .app here: Sideloadly must apply a clean
+          # personal-team signature to the outer app; an ad-hoc outer signature
+          # conflicts with that re-sign and makes iOS reject the app at launch
+          # ("Failed to launch process with bundle identifier").
+          codesign --force --sign - --timestamp=none "Payload/$(basename "$APP")/PlugIns/WebDriverAgentRunner.xctest"
           codesign -dv "Payload/$(basename "$APP")/PlugIns/WebDriverAgentRunner.xctest" 2>&1 | grep -i cdhash || true
           zip -qry WebDriverAgent.ipa Payload
           ls -la WebDriverAgent.ipa
