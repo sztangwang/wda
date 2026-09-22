@@ -1,0 +1,52 @@
+name: Build WebDriverAgent IPA (no Mac needed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      wda_ref:
+        description: 'WebDriverAgent git ref to build (branch or tag)'
+        required: false
+        default: 'master'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Select newest Xcode on the runner
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n1)
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE/Contents/Developer"; fi
+          echo "Using: $(xcode-select -p)"
+          xcodebuild -version
+
+      - name: Clone WebDriverAgent
+        run: |
+          git clone --depth 1 --branch "${{ github.event.inputs.wda_ref }}" \
+            https://github.com/appium/WebDriverAgent.git wda
+
+      - name: Build WebDriverAgentRunner (no code signing)
+        working-directory: wda
+        run: |
+          xcodebuild -project WebDriverAgent.xcodeproj \
+            -scheme WebDriverAgentRunner \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build-for-testing
+
+      - name: Package the runner app into an .ipa
+        working-directory: wda
+        run: |
+          APP=$(find build -name 'WebDriverAgentRunner-Runner.app' -type d | head -n 1)
+          if [ -z "$APP" ]; then echo "runner .app not found"; find build -name '*.app'; exit 1; fi
+          echo "Packaging: $APP"
+          mkdir - Payload
+          cp -R "$APP" Payload/
+          zip -qry WebDriverAgent.ipa Payload
+          ls -la WebDriverAgent.ipa
+
+      - name: Upload WebDriverAgent.ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebDriverAgent-ipa
+          path: wda/WebDriverAgent.ipa
