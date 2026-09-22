@@ -40,10 +40,19 @@ jobs:
           APP=$(find build -name 'WebDriverAgentRunner-Runner.app' -type d | head -n 1)
           if [ -z "$APP" ]; then echo "runner .app not found"; find build -name '*.app'; exit 1; fi
           echo "Packaging: $APP"
-          mkdir - Payload
+          mkdir -p Payload
           cp -R "$APP" Payload/
+          # Ad-hoc sign so EVERY nested Mach-O (critically PlugIns/*.xctest)
+          # carries a cdhash; iOS refuses to dlopen a completely-unsigned test
+          # bundle (XCTestErrorDomain 103 / "mapped file has no cdhash").
+          # codesign on a .app recursively signs nested code first.
+          # Sideloadly later replaces the OUTER app signature with your
+          # personal-team cert; the nested ad-hoc signature satisfies dlopen.
+          codesign --force --sign - --timestamp=none "Payload/$(basename "$APP")"
+          codesign -dv "Payload/$(basename "$APP")/PlugIns/WebDriverAgentRunner.xctest" 2>&1 | grep -i cdhash || true
           zip -qry WebDriverAgent.ipa Payload
           ls -la WebDriverAgent.ipa
+          unzip -l WebDriverAgent.ipa | grep -i xctest | head
 
       - name: Upload WebDriverAgent.ipa
         uses: actions/upload-artifact@v4
